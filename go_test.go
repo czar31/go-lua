@@ -1,5 +1,12 @@
-// Skip these test since they have different results based on the CPU architecture.
 //go:build skip
+
+/*
+ * @Date: 2022-03-18 16:19:20
+ * @LastEditors: CZ
+ * @LastEditTime: 2022-03-18 16:20:39
+ * @FilePath: /undefined/Users/chenz/GitHub/go-lua/go_test.go
+ */
+// Skip these test since they have different results based on the CPU architecture.
 
 package lua
 
@@ -32,7 +39,7 @@ func TestIsControl(t *testing.T) {
 	for i := 0; i < 256; i++ {
 		control := i < 0x20 || i == 0x7f
 		if lib := unicode.Is(unicode.Cc, rune(i)); control != lib {
-			t.Errorf("%x: is control? %s", i, strconv.FormatBool(lib))
+			t.Errorf("%x: is control? %v", i, lib)
 		}
 	}
 }

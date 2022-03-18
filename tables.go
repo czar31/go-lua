@@ -2,21 +2,19 @@ package lua
 
 import (
 	"math"
+	"runtime"
+	"sync"
 )
 
-type table struct {
-	array         []value
-	hash          map[value]value
-	metaTable     *table
-	flags         byte
-	iterationKeys []value
+var (
+	tablePool sync.Pool
+)
+
+func init() {
+	tablePool = sync.Pool{New: func() interface{} { return newTableNoPool(0, 0) }}
 }
 
-func newTable() *table                     { return &table{hash: make(map[value]value)} }
-func (t *table) invalidateTagMethodCache() { t.flags = 0 }
-func (t *table) atString(k string) value   { return t.hash[k] }
-
-func newTableWithSize(arraySize, hashSize int) *table {
+func newTableNoPool(arraySize int, hashSize int) *table {
 	t := new(table)
 	if arraySize > 0 {
 		t.array = make([]value, arraySize)
@@ -26,8 +24,50 @@ func newTableWithSize(arraySize, hashSize int) *table {
 	} else {
 		t.hash = make(map[value]value)
 	}
+	runtime.SetFinalizer(t, finiTable)
 	return t
 }
+
+func finiTable(t *table) {
+	t.metaTable = nil
+	t.flags = 0
+	t.array = t.array[0:0]
+	t.iterationKeys = t.iterationKeys[0:0]
+	if len(t.hash) > 0 {
+		t.hash = nil
+	}
+	tablePool.Put(t)
+}
+
+type table struct {
+	array         []value
+	hash          map[value]value
+	metaTable     *table
+	flags         byte
+	iterationKeys []value
+}
+
+func newTable() *table {
+	return newTableWithSize(0, 0)
+}
+
+func newTableWithSize(arraySize int, hashSize int) *table {
+	if t, ok := tablePool.Get().(*table); ok {
+		if t.hash == nil {
+			if hashSize > 0 {
+				t.hash = make(map[value]value, hashSize)
+			} else {
+				t.hash = make(map[value]value)
+			}
+		}
+		return t
+	} else {
+		return newTableNoPool(arraySize, hashSize)
+	}
+}
+
+func (t *table) invalidateTagMethodCache() { t.flags = 0 }
+func (t *table) atString(k string) value   { return t.hash[k] }
 
 func (l *State) fastTagMethod(table *table, event tm) value {
 	if table == nil || table.flags&1<<event != 0 {
@@ -80,8 +120,10 @@ func (t *table) maybeResizeArray(key int) bool {
 }
 
 func (t *table) addOrInsertHash(k, v value) {
-	if _, ok := t.hash[k]; !ok {
-		t.iterationKeys = nil // invalidate iterations when adding an entry
+	if t.iterationKeys != nil {
+		if _, ok := t.hash[k]; !ok {
+			t.iterationKeys = nil // invalidate iterations when adding an entry
+		}
 	}
 	t.hash[k] = v
 }
@@ -147,30 +189,42 @@ func (t *table) put(l *State, k, v value) {
 // OPT: tryPut is an optimized variant of the at/put pair used by setTableAt to avoid hashing the key twice.
 func (t *table) tryPut(l *State, k, v value) bool {
 	switch k := k.(type) {
-	case nil:
 	case float64:
 		if i := int(k); float64(i) == k && 0 < i && i <= len(t.array) && t.array[i-1] != nil {
 			t.array[i-1] = v
-			return true
-		} else if math.IsNaN(k) {
-			return false
-		} else if t.hash[k] != nil && v != nil {
-			t.hash[k] = v
-			return true
-		}
-	case string:
-		if t.hash[k] != nil && v != nil {
-			t.hash[k] = v
-			return true
-		}
-	default:
-		if t.hash[k] != nil && v != nil {
-			t.hash[k] = v
 			return true
 		}
 	}
 	return false
 }
+
+//// OPT: tryPut is an optimized variant of the at/put pair used by setTableAt to avoid hashing the key twice.
+//func (t *table) tryPut(l *State, k, v value) bool {
+//	switch k := k.(type) {
+//	case nil:
+//	case float64:
+//		if i := int(k); float64(i) == k && 0 < i && i <= len(t.array) && t.array[i-1] != nil {
+//			t.array[i-1] = v
+//			return true
+//		} else if math.IsNaN(k) {
+//			return false
+//		} else if t.hash[k] != nil && v != nil {
+//			t.hash[k] = v
+//			return true
+//		}
+//	case string:
+//		if t.hash[k] != nil && v != nil {
+//			t.hash[k] = v
+//			return true
+//		}
+//	default:
+//		if t.hash[k] != nil && v != nil {
+//			t.hash[k] = v
+//			return true
+//		}
+//	}
+//	return false
+//}
 
 func (t *table) unboundSearch(j int) int {
 	i := j
