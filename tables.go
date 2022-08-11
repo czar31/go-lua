@@ -7,11 +7,13 @@ import (
 )
 
 var (
-	tablePool sync.Pool
+	tablePool     sync.Pool
+	tableDataPool sync.Pool
 )
 
 func init() {
 	tablePool = sync.Pool{New: func() interface{} { return newTableNoPool(0, 0) }}
+	tableDataPool = sync.Pool{New: func() interface{} { return &TableData{} }}
 }
 
 func newTableNoPool(arraySize int, hashSize int) *table {
@@ -37,6 +39,69 @@ func finiTable(t *table) {
 		t.hash = nil
 	}
 	tablePool.Put(t)
+}
+
+type TableData struct {
+	Array []interface{}
+	Hash  map[interface{}]interface{}
+}
+
+func newTableDataNoPool() *TableData {
+	td := new(TableData)
+	runtime.SetFinalizer(td, finiTableData)
+	return td
+}
+
+func finiTableData(td *TableData) {
+	td.Array = td.Array[0:0]
+	if len(td.Hash) > 0 {
+		td.Hash = nil
+	}
+	tableDataPool.Put(td)
+}
+
+func newTableData() *TableData {
+	if td, ok := tableDataPool.Get().(*TableData); ok {
+		return td
+	} else {
+		return newTableDataNoPool()
+	}
+}
+
+func NewTableData(t interface{}) *TableData {
+	tt, ok := t.(*table)
+	if !ok {
+		return nil
+	}
+
+	td := newTableData()
+	if td.Array == nil {
+		td.Array = make([]interface{}, 0, len(tt.array))
+	}
+	for _, v := range tt.array {
+		switch v.(type) {
+		case (*table):
+			td.Array = append(td.Array, NewTableData(v))
+		case nil:
+			// do nothing
+		default:
+			td.Array = append(td.Array, v)
+		}
+	}
+
+	if td.Hash == nil {
+		td.Hash = make(map[interface{}]interface{}, len(tt.hash))
+	}
+	for k, v := range tt.hash {
+		switch v.(type) {
+		case (*table):
+			td.Hash[k] = NewTableData(v)
+		default:
+			td.Hash[k] = v
+		}
+	}
+
+	return td
 }
 
 type table struct {
