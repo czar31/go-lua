@@ -6,6 +6,10 @@ import (
 	"sync"
 )
 
+const (
+	TABLE_DATA_LEVEL_MAX = 10
+)
+
 var (
 	tablePool     sync.Pool
 	tableDataPool sync.Pool
@@ -68,7 +72,7 @@ func newTableData() *TableData {
 	}
 }
 
-func NewTableData(t interface{}) *TableData {
+func NewTableData(t interface{}, level int) *TableData {
 	tt, ok := t.(*table)
 	if !ok {
 		return nil
@@ -81,7 +85,11 @@ func NewTableData(t interface{}) *TableData {
 	for _, v := range tt.array {
 		switch v.(type) {
 		case (*table):
-			td.Array = append(td.Array, NewTableData(v))
+			if level < TABLE_DATA_LEVEL_MAX {
+				td.Array = append(td.Array, NewTableData(v, level+1))
+			} else {
+				td.Array = append(td.Array, nil)
+			}
 		case nil:
 			// do nothing
 		default:
@@ -95,7 +103,11 @@ func NewTableData(t interface{}) *TableData {
 	for k, v := range tt.hash {
 		switch v.(type) {
 		case (*table):
-			td.Hash[k] = NewTableData(v)
+			if level < TABLE_DATA_LEVEL_MAX {
+				td.Hash[k] = NewTableData(v, level+1)
+			} else {
+				td.Hash[k] = nil
+			}
 		default:
 			td.Hash[k] = v
 		}
