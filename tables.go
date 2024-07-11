@@ -88,7 +88,7 @@ func NewTableData(t interface{}, level int) *TableData {
 			if level < TABLE_DATA_LEVEL_MAX {
 				td.Array = append(td.Array, NewTableData(v, level+1))
 			} else {
-				td.Array = append(td.Array, nil)
+				td.Array = append(td.Array, "table too deep...")
 			}
 		case nil:
 			// do nothing
@@ -106,7 +106,7 @@ func NewTableData(t interface{}, level int) *TableData {
 			if level < TABLE_DATA_LEVEL_MAX {
 				td.Hash[k] = NewTableData(v, level+1)
 			} else {
-				td.Hash[k] = nil
+				td.Hash[k] = "table too deep..."
 			}
 		default:
 			td.Hash[k] = v
